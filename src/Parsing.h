@@ -141,6 +141,20 @@ namespace Parsing
 		ConfigSource configSource = ConfigSource::kAuthor;
 	};
 
+	struct ModConditionAppenderResult
+	{
+		ModConditionAppenderResult()
+		{
+			conditionSet = std::make_unique<Conditions::ConditionSet>();
+		}
+
+		std::string path;
+
+		std::vector<std::string> joinedModSubModValues{};
+		bool removeAllConditions;
+		std::unique_ptr<Conditions::ConditionSet> conditionSet;
+	};
+
 	struct ParseResults
 	{
 		//ExclusiveLock modParseResultsLock;
@@ -153,6 +167,7 @@ namespace Parsing
 	[[nodiscard]] std::unique_ptr<Conditions::ConditionSet> ParseConditionsTxt(const std::filesystem::path& a_txtPath);
 	[[nodiscard]] bool DeserializeMod(const std::filesystem::path& a_jsonPath, DeserializeMode a_deserializeMode, ModParseResult& a_outParseResult);
 	[[nodiscard]] bool DeserializeSubMod(std::filesystem::path a_jsonPath, DeserializeMode a_deserializeMode, SubModParseResult& a_outParseResult);
+	[[nodiscard]] bool DeserializeModConditionsAppender(std::filesystem::path a_jsonPath, std::vector<ModConditionAppenderResult>& a_outParseResults);
 	bool SerializeJson(std::filesystem::path a_jsonPath, const rapidjson::Document& a_doc);
 	[[nodiscard]] std::string SerializeJsonToString(const rapidjson::Document& a_doc);
 
@@ -162,6 +177,7 @@ namespace Parsing
 
 	[[nodiscard]] uint16_t GetOriginalAnimationBindingIndex(RE::hkbCharacterStringData* a_stringData, std::string_view a_animationName);
 
+	void ParseDirectoryAppender(std::vector<ModConditionAppenderResult>& conditionAppenders);
 	void ParseDirectory(const std::filesystem::directory_entry& a_directory, ParseResults& a_outParseResults);
 	[[nodiscard]] ModParseResult ParseModDirectory(const std::filesystem::directory_entry& a_directory);
 	[[nodiscard]] SubModParseResult ParseModSubdirectory(const std::filesystem::directory_entry& a_subDirectory, bool a_bIsLegacy = false);

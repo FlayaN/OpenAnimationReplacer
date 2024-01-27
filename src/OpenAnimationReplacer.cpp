@@ -488,6 +488,13 @@ void OpenAnimationReplacer::CreateReplacerMods()
 		InitFactories();
 	}
 
+	std::vector<Parsing::ModConditionAppenderResult> appenderMods;
+	logger::info("Parsing Data for _OARA mods...");
+	Parsing::ParseDirectoryAppender(appenderMods);
+	logger::info("Finished parsing Data for _OARA mods... Found {} items", appenderMods.size());
+
+	auto endOfParsingAppenderTime = std::chrono::high_resolution_clock::now();
+
 	constexpr auto meshesPath = "data\\meshes\\"sv;
 	/*const auto currentPath = std::filesystem::current_path();
 	const auto meshesPath = "\\\\?\\" + currentPath.string() + "\\data\\meshes\\";*/
@@ -508,6 +515,31 @@ void OpenAnimationReplacer::CreateReplacerMods()
 	logger::info("Adding parsed replacer mods...");
 	for (auto& future : parseResults.modParseResultFutures) {
 		auto modParseResult = future.get();
+
+		for (auto& appenderResult : appenderMods | std::views::filter([&modParseResult](const auto& appenderMod) {
+				 return std::ranges::any_of(appenderMod.joinedModSubModValues, [&modParseResult](const auto& joinedModSubModValue) {
+					 return joinedModSubModValue.starts_with(modParseResult.name);
+				 });
+			 })) {
+			logger::info("found matching appenderResult for modParseResult.name {}", modParseResult.name);
+			for (auto& subModParseResult : modParseResult.subModParseResults) {
+				logger::info("looping submod, {}, {}", modParseResult.name, subModParseResult.name);
+				if (!std::ranges::any_of(appenderResult.joinedModSubModValues, [&modParseResult, &subModParseResult](const auto& joinedModSubModValue) {
+						return joinedModSubModValue == modParseResult.name || joinedModSubModValue == modParseResult.name + ":" + subModParseResult.name;
+					})) {
+					continue;
+				}
+
+				logger::info("found matching appenderResult for modParseResult.name {}, {}", modParseResult.name, subModParseResult.name);
+
+				if (appenderResult.removeAllConditions) {
+					subModParseResult.conditionSet->ClearConditions();
+				}
+				const auto duplicatedSet = Conditions::DuplicateConditionSet(appenderResult.conditionSet.get());
+				subModParseResult.conditionSet->AppendConditions(duplicatedSet.get());
+			}
+		}
+
 		AddModParseResult(modParseResult);
 	}
 	logger::info("Added parsed replacer mods.");
@@ -518,6 +550,24 @@ void OpenAnimationReplacer::CreateReplacerMods()
 	logger::info("Adding parsed legacy replacer mods...");
 	for (auto& future : parseResults.legacyParseResultFutures) {
 		if (auto subModParseResult = future.get(); subModParseResult.bSuccess) {
+			for (auto& appenderResult : appenderMods | std::views::filter([](const auto& appenderMod) {
+					 return std::ranges::any_of(appenderMod.joinedModSubModValues, [](const auto& joinedModSubModValue) {
+						 return joinedModSubModValue.starts_with("Legacy");
+					 });
+				 })) {
+				if (!std::ranges::any_of(appenderResult.joinedModSubModValues, [&subModParseResult](const auto& joinedModSubModValue) {
+						return joinedModSubModValue == "Legacy:" + subModParseResult.name;
+					})) {
+					continue;
+				}
+
+				if (appenderResult.removeAllConditions) {
+					subModParseResult.conditionSet->ClearConditions();
+				}
+				const auto duplicatedSet = Conditions::DuplicateConditionSet(appenderResult.conditionSet.get());
+				subModParseResult.conditionSet->AppendConditions(duplicatedSet.get());
+			}
+
 			auto replacerMod = GetOrCreateLegacyReplacerMod();
 			AddSubModParseResult(replacerMod, subModParseResult);
 		}
@@ -533,7 +583,8 @@ void OpenAnimationReplacer::CreateReplacerMods()
 	auto endTime = std::chrono::high_resolution_clock::now();
 
 	logger::info("Time spent creating replacer mods:");
-	logger::info("  Parsing: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(endOfParsingTime - startTime).count());
+	logger::info("  Parsing appender: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(endOfParsingAppenderTime - startTime).count());
+	logger::info("  Parsing: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(endOfParsingTime - endOfParsingAppenderTime).count());
 	logger::info("  Adding mods: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(endOfModsTime - endOfParsingTime).count());
 	logger::info("  Adding legacy mods: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(endOfLegacyModsTime - endOfModsTime).count());
 	logger::info("  Checking for problems: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(endTime - endOfLegacyModsTime).count());
