@@ -444,6 +444,91 @@ namespace Parsing
 		return false;
 	}
 
+	bool DeserializeModConditionsAppender(std::filesystem::path a_jsonPath, std::vector<ModConditionAppenderResult>& a_outParseResults)
+	{
+		mmio::mapped_file_source file;
+		if (file.open(a_jsonPath)) {
+			rapidjson::MemoryStream stream{ reinterpret_cast<const char*>(file.data()), file.size() };
+
+			rapidjson::Document doc;
+			doc.ParseStream<rapidjson::ParseFlag::kParseCommentsFlag>(stream);
+
+			if (doc.HasParseError()) {
+				logger::error("Failed to parse file: {}", a_jsonPath.string());
+				return false;
+			}
+
+			if (!doc.IsArray()) {
+				logger::error("{} should be an array", a_jsonPath.string());
+				return false;
+			}
+
+			for (auto& root : doc.GetArray()) {
+				if (root.IsObject()) {
+					ModConditionAppenderResult result;
+
+					// read mods
+					if (auto modsIt = root.FindMember("mods"); modsIt != root.MemberEnd() && modsIt->value.IsArray()) {
+						for (auto& modsValue : modsIt->value.GetArray()) {
+							if (modsValue.IsObject()) {
+								std::string name;
+
+								if (auto nameIt = modsValue.FindMember("name"); nameIt != modsValue.MemberEnd() && nameIt->value.IsString()) {
+									name = nameIt->value.GetString();
+								} else {
+									logger::error("Failed to find mod modName in file: {}", a_jsonPath.string());
+									return false;
+								}
+
+								if (auto subModsIt = modsValue.FindMember("subMods"); subModsIt != modsValue.MemberEnd() && subModsIt->value.IsArray()) {
+									for (auto& subModsItValue : subModsIt->value.GetArray()) {
+										if (subModsItValue.IsString()) {
+											result.joinedModSubModValues.emplace_back(name + ":" + subModsItValue.GetString());
+										}
+									}
+								} else {
+									result.joinedModSubModValues.emplace_back(name);
+								}
+							}
+						}
+					}
+
+					// read submod disabled (optional)
+					if (auto removeAllConditionsIt = root.FindMember("removeAllConditions"); removeAllConditionsIt != root.MemberEnd() && removeAllConditionsIt->value.IsBool()) {
+						result.removeAllConditions = removeAllConditionsIt->value.GetBool();
+					}
+
+					// read conditionAdditions
+					if (auto conditionsIt = root.FindMember("conditionAdditions"); conditionsIt != root.MemberEnd() && conditionsIt->value.IsArray()) {
+						for (auto& conditionValue : conditionsIt->value.GetArray()) {
+							auto condition = Conditions::CreateConditionFromJson(conditionValue);
+							if (!condition->IsValid()) {
+								logger::error("Failed to parse condition in file: {}", a_jsonPath.string());
+
+								rapidjson::StringBuffer buffer;
+								rapidjson::PrettyWriter writer(buffer);
+								root.Accept(writer);
+
+								logger::error("Dumping entire json file from memory: {}", buffer.GetString());
+							}
+
+							result.conditionSet->AddCondition(condition);
+						}
+					}
+
+					result.path = a_jsonPath.parent_path().string();
+
+					a_outParseResults.emplace_back(std::move(result));
+				}
+			}
+
+			return true;
+		}
+
+		logger::error("Failed to open file: {}", a_jsonPath.string());
+		return false;
+	}
+
 	bool SerializeJson(std::filesystem::path a_jsonPath, const rapidjson::Document& a_doc)
 	{
 		errno_t err = 0;
@@ -556,6 +641,27 @@ namespace Parsing
 		std::promise<T> p;
 		p.set_value(std::forward<T>(a_t));
 		return p.get_future();
+	}
+
+	void ParseDirectoryAppender(std::vector<ModConditionAppenderResult>& conditionAppenders)
+	{
+		std::string suffix = "_OARA";
+
+		for (const auto iterator = std::filesystem::directory_iterator("data"sv); const auto& entry : iterator) {
+			if (entry.exists()) {
+				if (const auto& path = entry.path(); !path.empty() && path.extension() == ".json") {
+					if (const auto& fileName = path.string(); suffix.empty() || fileName.rfind(suffix) != std::string::npos) {
+						std::vector<ModConditionAppenderResult> results;
+
+						if (DeserializeModConditionsAppender(fileName, results)) {
+							for (auto& res : results) {
+								conditionAppenders.push_back(std::move(res));
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	void ParseDirectory(const std::filesystem::directory_entry& a_directory, ParseResults& a_outParseResults)
