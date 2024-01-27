@@ -129,7 +129,7 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 			"/bigobj"	# Increase Number of Sections in .obj file
 
 			"$<$<CONFIG:DEBUG>:>"
-			"$<$<CONFIG:RELEASE>:/Zc:inline;/JMC-;/Ob3>"
+			"$<$<CONFIG:RELEASE>:/Zc:inline;/JMC-;/Ob2>"
 	)
 
 	target_link_options(
